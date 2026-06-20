@@ -834,6 +834,44 @@ def deploy_remote_instance(
     )
 
 
+@mcp.tool()
+def deploy_coolify_instance(
+    host: str,
+    user: str,
+    key_file: str,
+    instance_name: str,
+    account_login: int,
+    account_password: str,
+    account_server: str,
+    symbol: str = "EURUSD",
+    ea_local_path: Optional[str] = None,
+    preset_local_path: Optional[str] = None,
+    vnc_port: Optional[int] = None,
+    coolify_token: str = "XuYhKAKiiErqwsWgdmY1PcLiMndU6Ez8WvzXhSZQ",
+    coolify_service_uuid: str = "nipi1hhqa5cb2qdyoptrik5p",
+) -> dict:
+    """Deploy a new MT5 instance on a remote Linux VPS via Coolify orchestration.
+    
+    Creates persistent boot/config directories, uploads startup.ini and EAs/presets,
+    adds the new service instance to the Coolify Docker Compose stack, and triggers a redeploy.
+    """
+    return _remote_deploy.deploy_coolify_instance(
+        host=host,
+        user=user,
+        key_file=key_file,
+        instance_name=instance_name,
+        account_login=account_login,
+        account_password=account_password,
+        account_server=account_server,
+        symbol=symbol,
+        ea_local_path=ea_local_path,
+        preset_local_path=preset_local_path,
+        vnc_port=vnc_port,
+        coolify_token=coolify_token,
+        coolify_service_uuid=coolify_service_uuid,
+    )
+
+
 def main():
     mcp.run()
 
