@@ -14,11 +14,17 @@ def test_deploy_remote_instance(mock_tempfile, mock_run, mock_unlink, tmp_path):
     mock_file.name = "mock_file.service"
     mock_tempfile.return_value.__enter__.return_value = mock_file
     
-    # Mock subprocess.run returns
-    mock_res = MagicMock()
-    mock_res.returncode = 0
-    mock_res.stdout = "Cloned base prefix"
-    mock_run.return_value = mock_res
+    # Mock subprocess.run returns dynamically based on command
+    def run_side_effect(cmd_args, **kwargs):
+        res = MagicMock()
+        res.returncode = 0
+        cmd_str = " ".join(cmd_args)
+        if "docker images -q" in cmd_str:
+            res.stdout = ""  # Simulate image not existing
+        else:
+            res.stdout = "mock_ok"
+        return res
+    mock_run.side_effect = run_side_effect
 
     # Create dummy local files
     ea_file = tmp_path / "MyEA.ex5"
@@ -50,8 +56,8 @@ def test_deploy_remote_instance(mock_tempfile, mock_run, mock_unlink, tmp_path):
     calls = [call[0][0] for call in mock_run.call_args_list]
     print("CALLS IN TEST:", calls)
 
-    # Verify that docker pull was executed on remote
-    assert any("docker pull ghcr.io/dixit6054/mt5-hangover" in " ".join(c) for c in calls if isinstance(c, list))
+    # Verify that docker build was executed on remote
+    assert any("docker build -t ghcr.io/dixit6054/mt5-hangover" in " ".join(c) for c in calls if isinstance(c, list))
 
     # Verify systemd service daemon-reload and restart was run
     assert any("systemctl daemon-reload" in " ".join(c) for c in calls if isinstance(c, list))

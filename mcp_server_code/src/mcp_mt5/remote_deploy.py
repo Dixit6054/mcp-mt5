@@ -92,10 +92,36 @@ def deploy_remote_instance(
     subprocess.run(scp_cmd, check=True)
     os.unlink(local_ini)
 
-    # 6. Docker pull on remote
+    # 6. Docker image setup (build locally if not exists)
     docker_image = "ghcr.io/dixit6054/mt5-hangover:arm64-v1.0"
-    logs.append("Pulling Docker image on remote host")
-    run_ssh(f"sudo docker pull {docker_image}")
+    
+    current_file = Path(__file__).resolve()
+    workspace_root = None
+    for parent in current_file.parents:
+        if (parent / "Dockerfile").exists():
+            workspace_root = parent
+            break
+            
+    if workspace_root:
+        host_build_path = f"{host_instance_path}/build"
+        run_ssh(f"mkdir -p \"{host_build_path}\"")
+        
+        for f_name in ["Dockerfile", "entrypoint.sh", "config-validator.sh"]:
+            local_f = workspace_root / f_name
+            if local_f.exists():
+                scp_cmd = scp_base + [str(local_f), f"{user}@{host}:{host_build_path}/{f_name}"]
+                logs.append(f"SCPing {f_name} to build folder")
+                subprocess.run(scp_cmd, check=True)
+                
+        image_check = run_ssh(f"sudo docker images -q {docker_image} 2>/dev/null || true").strip()
+        if not image_check:
+            logs.append(f"Docker image {docker_image} not found on VPS. Building natively on remote host (this will take several minutes)...")
+            run_ssh(f"sudo docker build -t {docker_image} \"{host_build_path}\"")
+        else:
+            logs.append(f"Docker image {docker_image} already exists on VPS. Skipping build.")
+    else:
+        logs.append("Workspace root not resolved. Attempting docker pull fallback...")
+        run_ssh(f"sudo docker pull {docker_image}")
 
     # 7. Setup systemd service
     service_name = f"mt5_{instance_name.replace('.', '').replace('/', '').replace('~', '')}"
