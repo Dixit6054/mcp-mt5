@@ -39,11 +39,12 @@ RUN Xvfb :99 -screen 0 1024x768x16 & \
     sleep 2 && \
     curl -L "https://msedge.sf.dl.delivery.mp.microsoft.com/filestreamingservice/files/f2910a1e-e5a6-4f17-b52d-7faf525d17f8/MicrosoftEdgeWebview2Setup.exe" -o webview2.exe && \
     (wine webview2.exe /silent /install || true) && \
-    sleep 2 && \
+    sleep 5 && \
     curl -L "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe" -o mt5setup.exe && \
     (wine mt5setup.exe /auto || true) && \
-    sleep 5 && \
-    wineserver -w && \
+    # Allow 90 seconds for installation to complete, then kill background winedevice.exe helpers
+    sleep 90 && \
+    wineserver -k && \
     rm -f webview2.exe mt5setup.exe
 
 # Copy validation and entrypoint scripts
