@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.0 — 2026-06-20
+
+### Added
+- **Dockerized Headless MT5**: Added multi-stage build structure for Ubuntu 24.04 and Hangover 11.9 (ARM64) to containerize MetaTrader 5 in Portable Mode (`/portable`).
+- **Config Validator**: Integrated non-Python bash script `config-validator.sh` to validate incoming configs at startup.
+- **Orchestration Templates**: Created Systemd service template `mt5-instance@.service` and Docker Compose template `docker-compose.yml.template`.
+- **Coolify Setup**: Added automated script to install Coolify, self-hosted deployment alternative.
+- **Testing Harness**: Added Python unit tests (`test_remote_deploy.py`) and validator integration tests (`test_docker_config_validation.sh`).
+
+### Changed
+- Refactored `remote_deploy.py` to SCP configuration files, build the Docker image natively on the remote host, and manage MT5 via containerized systemd services.
+
 ## 0.4.1 — 2026-05-04
 
 ### Changed
