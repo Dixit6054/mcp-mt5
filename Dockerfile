@@ -23,6 +23,7 @@ RUN apt-get update && apt-get install -y \
     curl \
     libasound2t64 \
     libpulse0 \
+    x11vnc \
     && apt-get install -y /opt/*.deb \
     && rm -rf /opt/*.deb /var/lib/apt/lists/*
 
@@ -31,21 +32,9 @@ ENV WINEPREFIX=/root/.wine
 ENV DISPLAY=:99
 ENV WINEDEBUG=-all
 
-# Pre-create Wine prefix, install WebView2 and MT5 setup headless
-RUN Xvfb :99 -screen 0 1024x768x16 & \
-    export DISPLAY=:99 && \
-    sleep 2 && \
-    winecfg -v=win11 && \
-    sleep 2 && \
-    curl -L "https://msedge.sf.dl.delivery.mp.microsoft.com/filestreamingservice/files/f2910a1e-e5a6-4f17-b52d-7faf525d17f8/MicrosoftEdgeWebview2Setup.exe" -o webview2.exe && \
-    (wine webview2.exe /silent /install || true) && \
-    sleep 5 && \
-    curl -L "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe" -o mt5setup.exe && \
-    (wine mt5setup.exe /auto || true) && \
-    # Allow 90 seconds for installation to complete, then kill background winedevice.exe helpers
-    sleep 90 && \
-    wineserver -k && \
-    rm -f webview2.exe mt5setup.exe
+# Expose VNC port
+EXPOSE 5900
+
 
 # Copy validation and entrypoint scripts
 COPY config-validator.sh /usr/local/bin/config-validator.sh

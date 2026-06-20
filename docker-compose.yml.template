@@ -10,6 +10,7 @@ services:
     volumes:
       - ./wine_prefix:/root/.wine
       - ./config:/etc/mt5/config
-      - ./logs:/root/.wine/drive_c/Program Files/MetaTrader 5/logs
-      - ./mql5_logs:/root/.wine/drive_c/Program Files/MetaTrader 5/MQL5/Logs
+    ports:
+      - "127.0.0.1:5900:5900"
     restart: always
+

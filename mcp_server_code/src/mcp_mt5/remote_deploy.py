@@ -123,7 +123,7 @@ def deploy_remote_instance(
         image_check = run_ssh(f"sudo docker images -q {docker_image} 2>/dev/null || true").strip()
         if not image_check:
             print(f"[!] Docker image not found on VPS. Starting native remote build of {docker_image}...", flush=True)
-            print("[!] Note: This build installs WebView2 and MT5 and takes approximately 2-3 minutes. Please wait...", flush=True)
+            print("[!] Note: This is a fast build that only sets up the runtime and x11vnc. It takes approximately 15-30 seconds. Please wait...", flush=True)
             run_ssh(f"sudo docker build -t {docker_image} \"{host_build_path}\"")
             print("[*] Docker build completed successfully!", flush=True)
         else:
@@ -147,6 +147,7 @@ def deploy_remote_instance(
     ExecStartPre=-/usr/bin/docker rm {service_name}
     ExecStart=/usr/bin/docker run --name {service_name} \\
       --pid=host \\
+      -p 127.0.0.1:5900:5900 \\
       -v {host_prefix_path}:/root/.wine \\
       -v {host_config_path}:/etc/mt5/config \\
       -e DISPLAY=:99 \\

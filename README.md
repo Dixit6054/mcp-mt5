@@ -121,7 +121,8 @@ Live, re-readable URIs that an MCP client can poll instead of calling a tool rep
 This fork integrates custom bash scripts, python wrappers, and Docker configurations to handle fully headless remote MT5 deployments on Linux VPS servers using Wine/Hangover and containers.
 
 ### Features Included:
-- **Dockerized Headless Deployment:** Single production-ready ARM64 Docker image running MT5 terminal in Portable Mode (`/portable`) with configurations bind-mounted and Wine prefix persisted.
+- **Dockerized Headless Deployment:** Single production-ready ARM64 Docker image running MT5 terminal in Portable Mode (`/portable`) with runtime prefix auto-installation, configurations bind-mounted, and a persistent Wine prefix volume.
+- **VNC Graphical Checking:** Integrated graphical server (`x11vnc` on port `5900`) for visual troubleshooting and monitoring of MT5.
 - **Headless Deployment:** `remote_deploy.py` orchestrates host directory structure setup, secure copying config/EA binaries, and spawning the container using instance-aware `systemd` services.
 - **Telegram Observability:** A fully automated `mt5_monitor.sh` cron job dynamically locates the active MT5 instances in Wine memory, parses the internal `LiveLog` and journal logs, and delivers error alerts, EA attachment states, and account numbers directly to Telegram.
 - **Server Health Check:** Built-in `health_check.sh` reports CPU, RAM, and Disk space hourly alongside the MT5 terminal metrics.
