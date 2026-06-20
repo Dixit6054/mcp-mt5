@@ -1,12 +1,15 @@
 # Design Spec: Dockerize mcp-mt5 for ARM64 Hangover + X11 Deployment
 
-This specification outlines the strategy, architecture, and implementation details for containerizing MetaTrader 5 (MT5) alongside the `mcp-mt5` Model Context Protocol server. The target architecture is ARM64 Linux (e.g. AWS Graviton, Oracle Ampere VPS) running MT5 inside the Hangover emulator (optimized Wine fork) with headless rendering using Xvfb.
+This specification outlines the strategy, architecture, and implementation details for containerizing MetaTrader 5 (MT5) for production deployment. The target architecture is ARM64 Linux (e.g. AWS Graviton, Oracle Ampere VPS) running MT5 inside the Hangover emulator (optimized Wine fork) with headless rendering using Xvfb. 
+
+> [!NOTE]
+> The Docker image is strictly for running the MT5 terminal and Expert Advisor in production. The `mcp-mt5` MCP server is NOT included in this image.
 
 ---
 
 ## 1. Architectural Strategy
 
-We will use **Approach A (Portable Mode)** to run MT5 inside the Docker container. 
+We will use **Approach A (Portable Mode)** to run MT5 inside the Docker container.
 
 ### Current Flow vs. Docker Flow
 
@@ -29,9 +32,9 @@ graph TD
 ```
 
 ### Key Design Decoupling
-1. **Immutable Docker Image**: Contain the complete OS runtime, Xvfb dependencies, Hangover (Wine), MT5 binaries, and the `mcp-mt5` package.
+1. **Immutable Production Docker Image**: Contains the Ubuntu OS runtime, Xvfb dependencies, Hangover (Wine), MT5 binaries, and required Windows support libraries (WebView2). No Python or MCP server code is bundled.
 2. **Runtime Configuration Bind Mounts**: Inject all instance-specific credentials (`startup.ini`), strategy tester parameters (`tester.ini`), compiled EAs (`.ex5`), and presets (`.set`) at startup.
-3. **Persistent Wine Prefix Volume**: Mount a host folder (e.g. `~/.wine`) to `/root/.wine` in the container to maintain broker authorization tokens across restarts.
+3. **Persistent Wine Prefix Volume**: Mount a host folder (e.g. `~/.wine`) to `/root/.wine` in the container to maintain broker authorization tokens and trading account states across restarts.
 
 ---
 
@@ -44,8 +47,8 @@ The Dockerfile is structured as a multi-stage build targeting `linux/arm64` on U
   - Extract the archive to a staging folder.
 - **Stage 2 (Base OS & X11 Dependencies)**:
   - Base image: `ubuntu:24.04` (ARM64).
-  - Install system dependencies: `xvfb`, `x11-apps`, `xauth`, `ca-certificates`, `curl`, `python3`, `python3-pip`, `python3-venv`, `libasound2`, `libpulse0`.
-- **Stage 3 (Hangover/Wine installation)**:
+  - Install system dependencies: `xvfb`, `x11-apps`, `xauth`, `ca-certificates`, `curl`, `libasound2`, `libpulse0`.
+- **Stage 3 (Hangover/Wine Installation)**:
   - Copy Hangover binaries from Stage 1 into system paths (`/opt/hangover` and symlinks to `/usr/local/bin`).
   - Configure `WINEPREFIX=/root/.wine` and initialize Wine with Windows 11 compatibility mode (`winecfg -v=win11`).
 - **Stage 4 (MT5 & WebView2 Installation)**:
@@ -54,12 +57,9 @@ The Dockerfile is structured as a multi-stage build targeting `linux/arm64` on U
     - `wine webview2.exe /silent /install`
     - `wine mt5setup.exe /auto`
   - Clean up installer files.
-- **Stage 5 (MCP Server Setup)**:
-  - Create a Python virtual environment at `/opt/mcp-env`.
-  - Install `mcp-mt5` package (v0.4.1+) and dependencies.
 - **Final Stage (Runtime Configuration)**:
   - Set default environment variables (`DISPLAY=:99`, `WINEPREFIX=/root/.wine`).
-  - Copy `entrypoint.sh` and set `ENTRYPOINT ["/entrypoint.sh"]`.
+  - Copy `config-validator.sh` and `entrypoint.sh` to the container and set `ENTRYPOINT ["/entrypoint.sh"]`.
 
 ---
 
@@ -82,7 +82,7 @@ Each running container instance represents a single MT5 trading/backtesting setu
 ### `entrypoint.sh`
 This script handles container initialization:
 1. **Xvfb Initialization**: Start Xvfb on display port `DISPLAY` (default `:99`) in the background.
-2. **Configuration Validation**: Run `config-validator.py` on `/etc/mt5/config` to check required keys in `startup.ini` and `tester.ini` before booting MT5.
+2. **Configuration Validation**: Run `config-validator.sh` on `/etc/mt5/config` to check required keys in `startup.ini` and `tester.ini` before booting MT5.
 3. **Environment Prep**:
    - Ensure the Wine prefix is initialized.
    - Copy or symlink mounted EA binaries (`.ex5`) and presets (`.set`) from `/etc/mt5/config/` to `/root/.wine/drive_c/Program Files/MetaTrader 5/MQL5/Experts/` and `/root/.wine/drive_c/Program Files/MetaTrader 5/MQL5/Presets/`.
@@ -91,11 +91,11 @@ This script handles container initialization:
    - Launch MT5 terminal with `/portable` flag and config pointer: `wine "C:/Program Files/MetaTrader 5/terminal64.exe" /portable /config:C:\startup.ini`
 5. **Graceful Shutdown**: Capture `SIGTERM` / `SIGINT` signals, terminate MT5 gracefully, stop Xvfb, and exit.
 
-### `config-validator.py`
-A Python script that parses:
-- `startup.ini`: Validates presence of `[Common] Login`, `Password`, `Server`.
-- `tester.ini` (if present): Validates dates, symbols, and parameters.
-- Returns non-zero exit code if validation fails, halting the container.
+### `config-validator.sh`
+A lightweight bash script that parses:
+- `startup.ini`: Validates presence of `Login`, `Password`, `Server` parameters.
+- `tester.ini` (if present): Validates basic keys.
+- Returns non-zero exit code if validation fails, preventing the container from running with bad configs.
 
 ---
 
@@ -155,11 +155,9 @@ System metrics (CPU, RAM, Disk) remain unchanged on the host level. We can appen
 ## 7. Verification Plan
 
 ### Automated Tests
-- Run `pytest` on the host to verify local parsing/linting tools.
 - Run a smoke test inside the Docker container to verify:
   1. `wine --version` returns Hangover/Wine version.
   2. `terminal64.exe` is successfully executed.
-  3. `mcp-mt5` server starts up and responds to `env_info`.
 
 ### Manual Verification
 - Deploy a containerized demo instance on an Ampere VPS.
