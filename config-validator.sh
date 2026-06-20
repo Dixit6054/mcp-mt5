@@ -16,8 +16,7 @@ if ! grep -q -i "^Login=" "$STARTUP_INI"; then
 fi
 
 if ! grep -q -i "^Password=" "$STARTUP_INI"; then
-    echo "ERROR: 'Password' parameter is missing in startup.ini."
-    exit 1
+    echo "WARNING: 'Password' parameter is missing in startup.ini (this is fine if using a seeded wine prefix)."
 fi
 
 if ! grep -q -i "^Server=" "$STARTUP_INI"; then
