@@ -38,20 +38,24 @@ def deploy_remote_instance(
     host_config_path = f"{host_instance_path}/config"
     host_prefix_path = f"{host_instance_path}/wine_prefix"
     
+    print(f"[*] Setting up remote directory structure at {host_instance_path}...", flush=True)
     run_ssh(f"mkdir -p \"{host_config_path}\" \"{host_prefix_path}\"")
     
     # 3. If exists, copy legacy ~/.mt5 folder to seed wine_prefix
+    print("[*] Seeding Wine prefix from legacy ~/.mt5 folder if present...", flush=True)
     run_ssh(f"if [ -d ~/.mt5 ] && [ ! -f \"{host_prefix_path}/system.reg\" ]; then cp -r ~/.mt5/* \"{host_prefix_path}/\"; echo 'Seeded Wine prefix'; fi")
 
     # 4. Copy EA and Preset if provided to host_config_path
     if ea_local_path and os.path.exists(ea_local_path):
         ea_name = Path(ea_local_path).name
+        print(f"[*] SCP-ing EA binary {ea_name} to remote VPS config directory...", flush=True)
         scp_cmd = scp_base + [ea_local_path, f"{user}@{host}:{host_config_path}/{ea_name}"]
         logs.append(f"SCPing EA: {' '.join(scp_cmd)}")
         subprocess.run(scp_cmd, check=True)
     
     if preset_local_path and os.path.exists(preset_local_path):
         preset_name = Path(preset_local_path).name
+        print(f"[*] SCP-ing Preset file {preset_name} to remote VPS config directory...", flush=True)
         scp_cmd = scp_base + [preset_local_path, f"{user}@{host}:{host_config_path}/{preset_name}"]
         logs.append(f"SCPing Preset: {' '.join(scp_cmd)}")
         subprocess.run(scp_cmd, check=True)
@@ -83,6 +87,7 @@ def deploy_remote_instance(
             
     config_ini = "\n".join(config_ini_lines) + "\n"
     
+    print("[*] Generating and copying startup.ini...", flush=True)
     with tempfile.NamedTemporaryFile("w", delete=False, suffix=".ini") as f:
         f.write(config_ini)
         local_ini = f.name
@@ -106,6 +111,7 @@ def deploy_remote_instance(
         host_build_path = f"{host_instance_path}/build"
         run_ssh(f"mkdir -p \"{host_build_path}\"")
         
+        print("[*] SCP-ing Dockerfile, entrypoint, and validator to remote VPS...", flush=True)
         for f_name in ["Dockerfile", "entrypoint.sh", "config-validator.sh"]:
             local_f = workspace_root / f_name
             if local_f.exists():
@@ -113,14 +119,17 @@ def deploy_remote_instance(
                 logs.append(f"SCPing {f_name} to build folder")
                 subprocess.run(scp_cmd, check=True)
                 
+        print(f"[*] Checking if Docker image {docker_image} exists on remote VPS...", flush=True)
         image_check = run_ssh(f"sudo docker images -q {docker_image} 2>/dev/null || true").strip()
         if not image_check:
-            logs.append(f"Docker image {docker_image} not found on VPS. Building natively on remote host (this will take several minutes)...")
+            print(f"[!] Docker image not found on VPS. Starting native remote build of {docker_image}...", flush=True)
+            print("[!] Note: This build installs WebView2 and MT5 and takes approximately 2-3 minutes. Please wait...", flush=True)
             run_ssh(f"sudo docker build -t {docker_image} \"{host_build_path}\"")
+            print("[*] Docker build completed successfully!", flush=True)
         else:
-            logs.append(f"Docker image {docker_image} already exists on VPS. Skipping build.")
+            print(f"[*] Docker image {docker_image} already exists on VPS. Skipping build.", flush=True)
     else:
-        logs.append("Workspace root not resolved. Attempting docker pull fallback...")
+        print("[!] Workspace root not resolved. Attempting docker pull fallback...", flush=True)
         run_ssh(f"sudo docker pull {docker_image}")
 
     # 7. Setup systemd service
@@ -140,8 +149,6 @@ def deploy_remote_instance(
       --pid=host \\
       -v {host_prefix_path}:/root/.wine \\
       -v {host_config_path}:/etc/mt5/config \\
-      -v {host_instance_path}/logs:/root/.wine/drive_c/Program\\ Files/MetaTrader\\ 5/logs \\
-      -v {host_instance_path}/mql5_logs:/root/.wine/drive_c/Program\\ Files/MetaTrader\\ 5/MQL5/Logs \\
       -e DISPLAY=:99 \\
       {docker_image}
     ExecStop=/usr/bin/docker stop {service_name}
@@ -150,6 +157,7 @@ def deploy_remote_instance(
     WantedBy=multi-user.target
     """)
     
+    print(f"[*] Writing and deploying systemd service {service_name}...", flush=True)
     with tempfile.NamedTemporaryFile("w", delete=False, suffix=".service") as f:
         f.write(service_content)
         local_service = f.name
@@ -163,6 +171,7 @@ def deploy_remote_instance(
     run_ssh(f"sudo systemctl enable {service_name}")
     run_ssh(f"sudo systemctl restart {service_name}")
     
+    print(f"[*] Dockerized service {service_name} successfully started and enabled!", flush=True)
     logs.append(f"Dockerized service {service_name} started.")
     
     return {

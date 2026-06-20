@@ -1,5 +1,5 @@
 import sys
-sys.path.insert(0, 'C:/Users/dixit/Desktop/mt5 antigravity/mcp_server_code/src')
+sys.path.insert(0, 'C:/Users/dixit/.gemini/antigravity/worktrees/mt5 antigravity/dockerize-mcp-mt5-arm64/mcp_server_code/src')
 
 from mcp_mt5.remote_deploy import deploy_remote_instance
 

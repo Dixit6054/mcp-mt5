@@ -1,6 +1,11 @@
 #!/bin/bash
 set -e
 
+# Ensure /root/.wine is owned by root (bind mounts can carry host UID permissions)
+if [ -d "/root/.wine" ]; then
+    chown -R root:root /root/.wine
+fi
+
 # 1. Start Xvfb in background
 echo "Starting Xvfb on DISPLAY ${DISPLAY}..."
 rm -f /tmp/.X99-lock
