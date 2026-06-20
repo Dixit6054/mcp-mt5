@@ -33,29 +33,34 @@ def deploy_remote_instance(
             raise RuntimeError(f"SSH command failed: {cmd}\nStderr: {res.stderr}")
         return res.stdout
 
-    # 2. Clone Base Prefix
-    target_prefix = f"~/{instance_name}"
-    run_ssh(f"if [ ! -d {target_prefix} ]; then cp -r ~/.mt5 {target_prefix}; echo 'Cloned base prefix'; else echo 'Prefix already exists'; fi")
+    # 2. Setup Host Directory Structure
+    host_instance_path = f"/home/{user}/mt5_instances/{instance_name.lstrip('~/.')}"
+    host_config_path = f"{host_instance_path}/config"
+    host_prefix_path = f"{host_instance_path}/wine_prefix"
     
-    # Clean up default charts so only the designated chart opens
-    run_ssh(f"rm -f \"{target_prefix}/drive_c/Program Files/MetaTrader 5/Profiles/Charts/Default/\"*.chr")
+    print(f"[*] Setting up remote directory structure at {host_instance_path}...", flush=True)
+    run_ssh(f"mkdir -p \"{host_config_path}\" \"{host_prefix_path}\"")
     
-    # 3. Copy EA and Preset if provided
-    base_mt5_dir = f"{target_prefix}/drive_c/Program Files/MetaTrader 5"
-    run_ssh(f"mkdir -p \"{base_mt5_dir}/MQL5/Experts\" \"{base_mt5_dir}/MQL5/Presets\"")
+    # 3. If exists, copy legacy ~/.mt5 folder to seed wine_prefix
+    print("[*] Seeding Wine prefix from legacy ~/.mt5 folder if present...", flush=True)
+    run_ssh(f"if [ -d ~/.mt5 ] && [ ! -f \"{host_prefix_path}/system.reg\" ]; then cp -r ~/.mt5/* \"{host_prefix_path}/\"; echo 'Seeded Wine prefix'; fi")
+
+    # 4. Copy EA and Preset if provided to host_config_path
     if ea_local_path and os.path.exists(ea_local_path):
         ea_name = Path(ea_local_path).name
-        scp_cmd = scp_base + [ea_local_path, f"{user}@{host}:{target_prefix}/drive_c/Program Files/MetaTrader 5/MQL5/Experts/{ea_name}"]
+        print(f"[*] SCP-ing EA binary {ea_name} to remote VPS config directory...", flush=True)
+        scp_cmd = scp_base + [ea_local_path, f"{user}@{host}:{host_config_path}/{ea_name}"]
         logs.append(f"SCPing EA: {' '.join(scp_cmd)}")
         subprocess.run(scp_cmd, check=True)
     
     if preset_local_path and os.path.exists(preset_local_path):
         preset_name = Path(preset_local_path).name
-        scp_cmd = scp_base + [preset_local_path, f"{user}@{host}:{target_prefix}/drive_c/Program Files/MetaTrader 5/MQL5/Presets/{preset_name}"]
+        print(f"[*] SCP-ing Preset file {preset_name} to remote VPS config directory...", flush=True)
+        scp_cmd = scp_base + [preset_local_path, f"{user}@{host}:{host_config_path}/{preset_name}"]
         logs.append(f"SCPing Preset: {' '.join(scp_cmd)}")
         subprocess.run(scp_cmd, check=True)
 
-    # 4. Generate startup config.ini
+    # 5. Generate startup.ini inside host_config_path
     config_ini_lines = [
         "[Common]",
         f"Login={account_login}",
@@ -82,34 +87,78 @@ def deploy_remote_instance(
             
     config_ini = "\n".join(config_ini_lines) + "\n"
     
+    print("[*] Generating and copying startup.ini...", flush=True)
     with tempfile.NamedTemporaryFile("w", delete=False, suffix=".ini") as f:
         f.write(config_ini)
         local_ini = f.name
         
-    scp_cmd = scp_base + [local_ini, f"{user}@{host}:{target_prefix}/drive_c/startup.ini"]
-    logs.append(f"SCPing startup.ini")
+    scp_cmd = scp_base + [local_ini, f"{user}@{host}:{host_config_path}/startup.ini"]
+    logs.append("SCPing startup.ini")
     subprocess.run(scp_cmd, check=True)
     os.unlink(local_ini)
 
-    # 5. Setup systemd service
-    service_name = f"mt5_{instance_name.replace('.', '').replace('/', '')}"
+    # 6. Docker image setup (build locally if not exists)
+    docker_image = "ghcr.io/dixit6054/mt5-hangover:arm64-v1.0"
+    
+    current_file = Path(__file__).resolve()
+    workspace_root = None
+    for parent in current_file.parents:
+        if (parent / "Dockerfile").exists():
+            workspace_root = parent
+            break
+            
+    if workspace_root:
+        host_build_path = f"{host_instance_path}/build"
+        run_ssh(f"mkdir -p \"{host_build_path}\"")
+        
+        print("[*] SCP-ing Dockerfile, entrypoint, and validator to remote VPS...", flush=True)
+        for f_name in ["Dockerfile", "entrypoint.sh", "config-validator.sh"]:
+            local_f = workspace_root / f_name
+            if local_f.exists():
+                scp_cmd = scp_base + [str(local_f), f"{user}@{host}:{host_build_path}/{f_name}"]
+                logs.append(f"SCPing {f_name} to build folder")
+                subprocess.run(scp_cmd, check=True)
+                
+        print(f"[*] Checking if Docker image {docker_image} exists on remote VPS...", flush=True)
+        image_check = run_ssh(f"sudo docker images -q {docker_image} 2>/dev/null || true").strip()
+        if not image_check:
+            print(f"[!] Docker image not found on VPS. Starting native remote build of {docker_image}...", flush=True)
+            print("[!] Note: This is a fast build that only sets up the runtime and x11vnc. It takes approximately 15-30 seconds. Please wait...", flush=True)
+            run_ssh(f"sudo docker build -t {docker_image} \"{host_build_path}\"")
+            print("[*] Docker build completed successfully!", flush=True)
+        else:
+            print(f"[*] Docker image {docker_image} already exists on VPS. Skipping build.", flush=True)
+    else:
+        print("[!] Workspace root not resolved. Attempting docker pull fallback...", flush=True)
+        run_ssh(f"sudo docker pull {docker_image}")
+
+    # 7. Setup systemd service
+    service_name = f"mt5_{instance_name.replace('.', '').replace('/', '').replace('~', '')}"
     service_content = textwrap.dedent(f"""\
     [Unit]
-    Description=MT5 Instance {instance_name}
-    After=network.target
+    Description=Dockerized MT5 Instance {instance_name}
+    After=docker.service
+    Requires=docker.service
 
     [Service]
-    Type=simple
-    User={user}
-    Environment="WINEPREFIX=/home/{user}/{instance_name.lstrip('~/')}"
-    Environment="WINEDLLOVERRIDES=mscoree,mshtml="
-    ExecStart=/usr/bin/xvfb-run -a /usr/bin/wine "C:/Program Files/MetaTrader 5/terminal64.exe" "/config:C:\\\\startup.ini"
+    TimeoutStartSec=0
     Restart=always
+    ExecStartPre=-/usr/bin/docker kill {service_name}
+    ExecStartPre=-/usr/bin/docker rm {service_name}
+    ExecStart=/usr/bin/docker run --name {service_name} \\
+      --pid=host \\
+      -p 127.0.0.1:5900:5900 \\
+      -v {host_prefix_path}:/root/.wine \\
+      -v {host_config_path}:/etc/mt5/config \\
+      -e DISPLAY=:99 \\
+      {docker_image}
+    ExecStop=/usr/bin/docker stop {service_name}
 
     [Install]
     WantedBy=multi-user.target
     """)
     
+    print(f"[*] Writing and deploying systemd service {service_name}...", flush=True)
     with tempfile.NamedTemporaryFile("w", delete=False, suffix=".service") as f:
         f.write(service_content)
         local_service = f.name
@@ -123,7 +172,8 @@ def deploy_remote_instance(
     run_ssh(f"sudo systemctl enable {service_name}")
     run_ssh(f"sudo systemctl restart {service_name}")
     
-    logs.append(f"Service {service_name} started.")
+    print(f"[*] Dockerized service {service_name} successfully started and enabled!", flush=True)
+    logs.append(f"Dockerized service {service_name} started.")
     
     return {
         "status": "success",
@@ -131,3 +181,4 @@ def deploy_remote_instance(
         "service_name": service_name,
         "logs": logs
     }
+

@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  mt5-instance:
+    image: ghcr.io/dixit6054/mt5-hangover:arm64-v1.0
+    container_name: mt5-instance-demo
+    pid: "host"
+    environment:
+      - DISPLAY=:99
+    volumes:
+      - ./wine_prefix:/root/.wine
+      - ./config:/etc/mt5/config
+    ports:
+      - "127.0.0.1:5900:5900"
+    restart: always
+

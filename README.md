@@ -116,16 +116,118 @@ Live, re-readable URIs that an MCP client can poll instead of calling a tool rep
 
 ---
 
-## 🚀 Remote Linux Deployment & Observability
+## 🚀 Production Deployment — Docker + Coolify on ARM64 VPS
 
-This fork integrates custom bash scripts and python wrappers to handle fully headless remote MT5 deployments on Linux VPS servers using Wine.
+This project ships a **production-ready Docker stack** that runs one or more MetaTrader 5 terminals as isolated containers on a Linux ARM64 VPS (e.g. Oracle Ampere), orchestrated by [Coolify](https://coolify.io).
 
-### Features Included:
-- **Headless Deployment:** `remote_deploy.py` handles auto-creating `Experts/` directories, securely copying `.ex5` files over SSH, and automatically generating robust `systemd` user services to keep your MT5 terminal running persistently in the background.
-- **Telegram Observability:** A fully automated `mt5_monitor.sh` cron job dynamically locates the active MT5 instances in Wine memory, parses the internal `LiveLog` and journal logs, and delivers error alerts, EA attachment states, and account numbers directly to Telegram.
-- **Server Health Check:** Built-in `health_check.sh` reports CPU, RAM, and Disk space hourly alongside the MT5 terminal metrics.
+### Why Docker instead of bare-metal Wine?
 
-Read the full guide here: [Remote Deployment & Monitoring Guide](../docs/deployment_and_monitoring.md)
+| | Bare-metal systemd | ✅ Docker + Coolify |
+|---|---|---|
+| **Isolation** | All terminals share the same Wine prefix and OS libraries | Each terminal gets its own container, Wine prefix volume, and config mount |
+| **Restart policy** | Manual `systemctl restart` | `restart: always` — Coolify / Docker Engine auto-heals crashes |
+| **Updates** | Stop service → reinstall → restart | Rebuild image → `docker compose up -d` — zero-downtime rolling replace |
+| **Config management** | Hand-edited ini files scattered across `~/.mt5*` | Config files are bind-mounted from a single versioned directory |
+| **Scalability** | New account = new systemd unit = manual work | New account = copy a Compose service block |
+| **Cleanup** | Leftover logs, prefixes, and build artefacts accumulate on host | `docker system prune` wipes everything except named volumes |
+| **Observability** | `tail -f` logs in SSH session | Coolify dashboard + `docker logs` + VNC graphical check |
+
+---
+
+### Architecture
+
+```
+Oracle Ampere ARM64 VPS (147.x.x.x)
+├── Coolify  (port 8000)           ← orchestration dashboard
+│   └── manages → docker-compose.yml
+│
+├── mt5-primary  (container)
+│   ├── Xvfb  :99                  ← virtual display
+│   ├── x11vnc  :5900              ← VNC server  (SSH-tunnelled to localhost:5901)
+│   └── terminal64.exe (Hangover)  ← MT5 via Wine/ARM FEX
+│       └── /root/.wine  ──────────── volume: wine_prefix_first
+│
+└── mt5-secondary  (container)
+    ├── Xvfb  :99
+    ├── x11vnc  :5900              ← VNC server  (SSH-tunnelled to localhost:5902)
+    └── terminal64.exe (Hangover)
+        └── /root/.wine  ──────────── volume: wine_prefix_second
+```
+
+Config files (`startup.ini`) are **bind-mounted** from the host at `/home/ubuntu/mt5_instances/<account>/config/` → `/etc/mt5/config/` inside each container. The config validator runs at startup and exits with a clear error if required fields are missing.
+
+---
+
+### Quick-deploy a new instance
+
+**Prerequisites:** Oracle ARM64 VPS with Coolify installed, Docker Engine running.
+
+**1. Clone & configure**
+```bash
+git clone https://github.com/Dixit6054/mcp-mt5
+cd mcp-mt5
+```
+
+**2. Write your `startup.ini`** (one per account):
+```ini
+[Common]
+Login=123456789
+Password=YourPassword
+Server=YourBroker-Live
+
+[Experts]
+AllowDllImport=1
+Enabled=1
+```
+
+**3. Copy to the VPS and start**
+```bash
+# Copy config
+scp startup.ini ubuntu@<vps>:/home/ubuntu/mt5_instances/mt5_first_account/config/startup.ini
+
+# Build the image (first time only, ~2 min)
+ssh ubuntu@<vps> "docker build -t mt5-hangover:latest ~/mt5_instances/build"
+
+# Launch all containers
+ssh ubuntu@<vps> "cd ~/mt5_instances && docker compose up -d"
+```
+
+**4. Verify**
+```bash
+ssh ubuntu@<vps> "docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'"
+# mt5-primary    Up 2 minutes   127.0.0.1:5901->5900/tcp
+# mt5-secondary  Up 2 minutes   127.0.0.1:5902->5900/tcp
+```
+
+**5. Visual check via VNC** (SSH tunnel — no firewall changes needed):
+```bash
+ssh -i <key> -L 5901:127.0.0.1:5901 -L 5902:127.0.0.1:5902 ubuntu@<vps>
+# Then open any VNC viewer → localhost:5901 (primary) / localhost:5902 (secondary)
+```
+
+---
+
+### Key files
+
+| File | Purpose |
+|------|---------|
+| [`Dockerfile`](Dockerfile) | Two-stage build: downloads Hangover debs in a builder stage, installs Wine + Xvfb + x11vnc in the runtime stage |
+| [`entrypoint.sh`](entrypoint.sh) | Per-container startup: validates config, initialises the Wine prefix (first boot), launches Xvfb, x11vnc, then MT5 |
+| [`config-validator.sh`](config-validator.sh) | Checks `startup.ini` for required fields; exits 1 on fatal errors so Docker restarts the container with a clear log |
+| [`docker-compose.yml`](docker-compose.yml) | Two-service Compose stack with named volumes and bind-mounted configs |
+
+---
+
+### Monitoring & Observability
+
+- **Coolify dashboard** (`http://<vps>:8000`): per-container health, resource usage, log viewer, restart controls.
+- **Docker logs**: `docker logs -f mt5-primary` — streams combined stdout/stderr from Xvfb, x11vnc, and the MT5 process.
+- **VNC**: graphical real-time view of the MT5 terminal via SSH-tunnelled x11vnc.
+- **Telegram alerts**: `mt5_monitor.sh` (optional cron) parses `LiveLog.txt` and sends error/EA-state alerts via Telegram Bot API.
+
+Read the full guides:
+- [Remote Deployment & Monitoring Guide](docs/deployment_and_monitoring.md)
+- [Docker Deployment Guide](docs/docker_deployment.md)
 
 ---
 
@@ -279,7 +381,8 @@ mcp-mt5/
 
 ## Limitations
 
-- **Windows-only.** MetaTrader CLI binaries don't ship for Linux/macOS. Wine ports may work but are untested.
+- **MCP server: Windows-only.** The `mcp-mt5` Python server (compile, backtest, parse) requires Windows + an installed MetaTrader terminal. For Linux, run the MCP server on a Windows host and point it at the remote terminal.
+- **MT5 runtime: Linux ARM64 supported via Docker.** MetaTrader 5 runs inside isolated Docker containers on Oracle Ampere (ARM64) using [Hangover](https://github.com/AndreRH/hangover) (Wine + FEX emulation). See the [Production Deployment](#-production-deployment--docker--coolify-on-arm64-vps) section above.
 - **No live broker access.** This server intentionally never authenticates to a broker. Use a separate MCP server for runtime trading.
 - **Tester report parsing is best-effort.** MetaTrader's HTML output isn't a stable schema; the raw HTML is also returned alongside the parsed structure so you can fall back to text inspection when needed.
 - **Optimization runs are not parsed yet.** Single-pass backtests are fully supported; `.opt` results are on the roadmap.

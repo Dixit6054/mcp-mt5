@@ -1,0 +1,22 @@
+[Unit]
+Description=Docker MetaTrader 5 Instance - %i
+After=docker.service
+Requires=docker.service
+
+[Service]
+TimeoutStartSec=0
+Restart=always
+ExecStartPre=-/usr/bin/docker kill mt5-%i
+ExecStartPre=-/usr/bin/docker rm mt5-%i
+ExecStart=/usr/bin/docker run --name mt5-%i \
+  --pid=host \
+  -p 127.0.0.1:5900:5900 \
+  -v /home/ubuntu/mt5_instances/%i/wine_prefix:/root/.wine \
+  -v /home/ubuntu/mt5_instances/%i/config:/etc/mt5/config \
+  -e DISPLAY=:99 \
+  ghcr.io/dixit6054/mt5-hangover:arm64-v1.0
+ExecStop=/usr/bin/docker stop mt5-%i
+
+
+[Install]
+WantedBy=multi-user.target
