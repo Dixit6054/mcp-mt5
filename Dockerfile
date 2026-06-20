@@ -11,7 +11,10 @@ RUN curl -L -O https://github.com/AndreRH/hangover/releases/download/hangover-11
 FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install base packages (libasound2t64 is for Ubuntu 24.04)
+# Copy Hangover deb packages from builder stage
+COPY --from=hangover-builder /opt/*.deb /opt/
+
+# Install base packages, dependencies, and hangover deb packages
 RUN apt-get update && apt-get install -y \
     xvfb \
     x11-apps \
@@ -20,16 +23,8 @@ RUN apt-get update && apt-get install -y \
     curl \
     libasound2t64 \
     libpulse0 \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy Hangover
-COPY --from=hangover-builder /opt/hangover /opt/hangover
-
-# Set up symlinks for Wine / Hangover binaries
-RUN ln -s /opt/hangover/bin/wine /usr/local/bin/wine && \
-    ln -s /opt/hangover/bin/wine64 /usr/local/bin/wine64 && \
-    ln -s /opt/hangover/bin/winecfg /usr/local/bin/winecfg && \
-    ln -s /opt/hangover/bin/wineserver /usr/local/bin/wineserver
+    && apt-get install -y /opt/*.deb \
+    && rm -rf /opt/*.deb /var/lib/apt/lists/*
 
 # Set environment variables
 ENV WINEPREFIX=/root/.wine
