@@ -531,3 +531,62 @@
   git add docs/docker_deployment.md README.md tests/test_docker_config_validation.sh
   git commit -m "docs: Add Docker deployment guide and config validation test"
   ```
+
+---
+
+### Task 5: Install Coolify on VPS
+
+**Files:**
+- Create: `mcp_server_code/src/mcp_mt5/install_coolify.py`
+- Modify: `docs/docker_deployment.md`
+
+**Interfaces:**
+- Consumes: Remote SSH credentials (host, user, key_file)
+- Produces: Installed and running Coolify service on the remote VPS
+
+- [ ] **Step 1: Create `install_coolify.py`**
+  Create a helper python script `mcp_server_code/src/mcp_mt5/install_coolify.py` to automate SSH execution of the official Coolify installation command.
+  
+  ```python
+  import subprocess
+  import sys
+  
+  def install_coolify(host, user, key_file):
+      key_opt = ["-i", key_file] if key_file else []
+      ssh_cmd = ["ssh", "-o", "StrictHostKeyChecking=no"] + key_opt + [f"{user}@{host}"]
+      
+      # Official Coolify one-liner installation script
+      install_cmd = "curl -fsSL https://cdn.coollabs.io/coolify/install.sh | sudo bash"
+      
+      print(f"Installing Coolify on {host} via SSH...")
+      res = subprocess.run(ssh_cmd + [install_cmd], capture_output=True, text=True)
+      if res.returncode != 0:
+          print(f"Installation failed. Stderr: {res.stderr}")
+          sys.exit(1)
+      print("Installation command completed successfully.")
+      print(res.stdout)
+  
+  if __name__ == "__main__":
+      # Extract parameters from test_deploy config
+      install_coolify(
+          host="147.224.213.171",
+          user="ubuntu",
+          key_file="C:/Users/dixit/Desktop/mt5 antigravity/ssh-key-2026-06-19 (1).key"
+      )
+  ```
+
+- [ ] **Step 2: Execute Coolify installation**
+  Run the script to execute the installation on the remote VPS.
+  
+  Run: `python mcp_server_code/src/mcp_mt5/install_coolify.py`
+  Expected: Installation output from the Coolify installer.
+
+- [ ] **Step 3: Document Coolify setup**
+  Add a section to `docs/docker_deployment.md` detailing how to access and configure Coolify (default port 8000).
+
+- [ ] **Step 4: Commit changes**
+  
+  ```bash
+  git add mcp_server_code/src/mcp_mt5/install_coolify.py docs/docker_deployment.md
+  git commit -m "feat: Add Coolify installer script and documentation"
+  ```
