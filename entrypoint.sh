@@ -6,10 +6,11 @@ if [ -d "/root/.wine" ]; then
     chown -R root:root /root/.wine
 fi
 
-# 1. Start Xvfb in background
-echo "Starting Xvfb on DISPLAY ${DISPLAY}..."
+# 1. Start Xvfb in background (defaulting to standard widescreen 1920x1080)
+SCREEN_RESOLUTION=${SCREEN_RESOLUTION:-1920x1080x16}
+echo "Starting Xvfb on DISPLAY ${DISPLAY} with resolution ${SCREEN_RESOLUTION}..."
 rm -f /tmp/.X99-lock
-Xvfb ${DISPLAY} -screen 0 1024x768x16 &
+Xvfb ${DISPLAY} -screen 0 ${SCREEN_RESOLUTION} &
 XVFB_PID=$!
 sleep 2
 
@@ -18,6 +19,34 @@ echo "Starting x11vnc on port 5900..."
 x11vnc -display ${DISPLAY} -forever -shared -nopw -bg -rfbport 5900 &
 VNC_PID=$!
 sleep 2
+
+# 2b. Create custom Openbox window manager configuration to maximize main window and center popups
+echo "Creating custom Openbox configuration..."
+mkdir -p /root/.config/openbox
+cat << 'EOF' > /root/.config/openbox/rc.xml
+<?xml version="1.0" encoding="UTF-8"?>
+<openbox_config xmlns="http://openbox.org/3.4/rc" xmlns:xi="http://www.w3.org/2001/XInclude">
+  <applications>
+    <!-- Maximize the main MetaTrader window (type="normal") -->
+    <application type="normal">
+      <maximized>yes</maximized>
+    </application>
+    <!-- Center dialogs/popups (type="dialog") instead of putting them at random coordinates -->
+    <application type="dialog">
+      <maximized>no</maximized>
+      <position force="yes">
+        <x>center</x>
+        <y>center</y>
+      </position>
+    </application>
+  </applications>
+</openbox_config>
+EOF
+
+echo "Starting Openbox window manager..."
+openbox &
+OPENBOX_PID=$!
+sleep 1
 
 # 3. Run config validator
 echo "Validating configuration files..."
@@ -82,6 +111,8 @@ fi
 cleanup() {
     echo "Stopping MetaTrader 5..."
     wineserver -k || true
+    echo "Stopping Openbox..."
+    kill $OPENBOX_PID || true
     echo "Stopping x11vnc..."
     kill $VNC_PID || true
     echo "Stopping Xvfb..."
@@ -89,6 +120,15 @@ cleanup() {
     exit 0
 }
 trap cleanup SIGTERM SIGINT
+
+# 6b. Set DPI/scaling inside Wine registry if WINE_DPI is set
+WINE_DPI=${WINE_DPI:-120}
+if [ "$WINE_DPI" -gt 0 ]; then
+    DPI_HEX=$(printf '0x%02x' "$WINE_DPI")
+    echo "Setting Wine DPI to ${WINE_DPI} (${DPI_HEX})..."
+    wine reg add "HKEY_CURRENT_USER\Control Panel\Desktop" /v LogPixels /t REG_DWORD /d "$DPI_HEX" /f || true
+    wine reg add "HKEY_CURRENT_USER\Software\Wine\Fonts" /v LogPixels /t REG_DWORD /d "$DPI_HEX" /f || true
+fi
 
 # 7. Launch MT5 Terminal in portable mode
 echo "Launching MT5 Terminal in portable mode..."

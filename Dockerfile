@@ -24,6 +24,7 @@ RUN apt-get update && apt-get install -y \
     libasound2t64 \
     libpulse0 \
     x11vnc \
+    openbox \
     && apt-get install -y /opt/*.deb \
     && rm -rf /opt/*.deb /var/lib/apt/lists/*
 
