@@ -19,6 +19,7 @@ def deploy_to_production(
     ea_local_path: Optional[str] = None,
     preset_local_path: Optional[str] = None,
     vnc_port: Optional[int] = None,
+    webrequest_urls: Optional[str] = None,
     coolify_token: str = "XuYhKAKiiErqwsWgdmY1PcLiMndU6Ez8WvzXhSZQ",
     coolify_service_uuid: str = "nipi1hhqa5cb2qdyoptrik5p",
 ) -> dict:
@@ -162,6 +163,11 @@ def deploy_to_production(
         if line.strip() == "services:":
             services_idx = len(new_compose_lines) - 1
 
+    env_block = [f"      - DISPLAY=:99"]
+    if webrequest_urls:
+        env_block.append(f"      - WEBREQUEST_URLS={webrequest_urls}")
+    env_str = "\n".join(env_block)
+
     new_service_block = (
         f"  {service_name}:\n"
         f"    image: mt5-hangover:latest\n"
@@ -173,7 +179,7 @@ def deploy_to_production(
         f"      - {host_prefix_path}:/root/.wine\n"
         f"      - {host_boot_path}:/etc/mt5/config\n"
         f"    environment:\n"
-        f"      - DISPLAY=:99\n"
+        f"{env_str}\n"
         f"    restart: always"
     )
     

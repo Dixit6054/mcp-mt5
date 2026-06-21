@@ -55,6 +55,7 @@ def test_deploy_to_production(mock_tempfile, mock_run, mock_unlink, tmp_path):
         account_server="BrokerServer",
         symbol="EURUSD",
         ea_local_path=str(ea_file),
+        webrequest_urls="https://api.mybroker.com",
     )
 
     # Verify status

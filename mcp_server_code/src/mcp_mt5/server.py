@@ -815,6 +815,7 @@ def deploy_to_production(
     ea_local_path: Optional[str] = None,
     preset_local_path: Optional[str] = None,
     vnc_port: Optional[int] = None,
+    webrequest_urls: Optional[str] = None,
     coolify_token: str = "XuYhKAKiiErqwsWgdmY1PcLiMndU6Ez8WvzXhSZQ",
     coolify_service_uuid: str = "nipi1hhqa5cb2qdyoptrik5p",
 ) -> dict:
@@ -835,6 +836,7 @@ def deploy_to_production(
         ea_local_path=ea_local_path,
         preset_local_path=preset_local_path,
         vnc_port=vnc_port,
+        webrequest_urls=webrequest_urls,
         coolify_token=coolify_token,
         coolify_service_uuid=coolify_service_uuid,
     )

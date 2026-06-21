@@ -107,6 +107,228 @@ if ls "${CONFIG_DIR}"/*.set >/dev/null 2>&1; then
     cp "${CONFIG_DIR}"/*.set "${MT5_INSTALL_DIR}/MQL5/Presets/"
 fi
 
+# 5b. Force Auto Trading and WebRequest Configuration
+echo "Configuring MT5 global settings and startup settings..."
+
+# Enforce Experts settings in startup.ini (ASCII/UTF-8)
+STARTUP_INI="/root/.wine/drive_c/startup.ini"
+if [ ! -f "$STARTUP_INI" ]; then
+    echo "Creating minimal startup.ini..."
+    cat << 'EOF' > "$STARTUP_INI"
+[Common]
+[Experts]
+Enabled=1
+AllowDllImport=1
+EOF
+else
+    echo "Enforcing Enabled=1 and AllowDllImport=1 in startup.ini..."
+    awk '
+    BEGIN {
+        in_experts = 0
+        found_experts = 0
+        has_enabled = 0
+        has_dll = 0
+    }
+    /^\[Experts\]/ {
+        in_experts = 1
+        found_experts = 1
+        print
+        next
+    }
+    /^\[/ && !/^\[Experts\]/ {
+        if (in_experts) {
+            if (!has_enabled) print "Enabled=1"
+            if (!has_dll) print "AllowDllImport=1"
+            in_experts = 0
+        }
+        print
+        next
+    }
+    {
+        if (in_experts) {
+            clean_key = tolower($1)
+            gsub(/[ \t\r\n]/, "", clean_key)
+            if (clean_key == "enabled") {
+                print "Enabled=1"
+                has_enabled = 1
+                next
+            }
+            if (clean_key == "allowdllimport") {
+                print "AllowDllImport=1"
+                has_dll = 1
+                next
+            }
+        }
+        print
+    }
+    END {
+        if (in_experts) {
+            if (!has_enabled) print "Enabled=1"
+            if (!has_dll) print "AllowDllImport=1"
+        } else if (!found_experts) {
+            print ""
+            print "[Experts]"
+            print "Enabled=1"
+            print "AllowDllImport=1"
+        }
+    }
+    ' FS='=' "$STARTUP_INI" > "$STARTUP_INI.tmp"
+    mv "$STARTUP_INI.tmp" "$STARTUP_INI"
+fi
+
+# Function to extract base URLs from a file (handles UTF-8 and UTF-16LE)
+extract_urls_from_file() {
+    local file="$1"
+    if [ ! -f "$file" ]; then
+        return
+    fi
+    # Detect encoding: if it has null bytes, it is likely UTF-16LE
+    local orig_size=$(wc -c < "$file")
+    local stripped_size=$(tr -d '\0' < "$file" | wc -c)
+    if [ "$orig_size" -ne "$stripped_size" ]; then
+        iconv -f UTF-16LE -t UTF-8 "$file" > /tmp/set_file_utf8.tmp 2>/dev/null || cp "$file" /tmp/set_file_utf8.tmp
+    else
+        cp "$file" /tmp/set_file_utf8.tmp
+    fi
+    grep -o -E "https?://[^/\"'\\ \t\r\n]+" /tmp/set_file_utf8.tmp || true
+    rm -f /tmp/set_file_utf8.tmp
+}
+
+# Collect all unique URLs
+declare -A UNIQUE_URLS
+
+# 1. Add URLs from environment variable
+if [ -n "$WEBREQUEST_URLS" ]; then
+    IFS=';,' read -r -a env_urls <<< "$WEBREQUEST_URLS"
+    for url in "${env_urls[@]}"; do
+        url=$(echo "$url" | xargs)
+        if [ -n "$url" ]; then
+            base_url=$(echo "$url" | grep -o -E "https?://[^/\"'\\ \t\r\n]+" || echo "$url")
+            UNIQUE_URLS["$base_url"]=1
+        fi
+    done
+fi
+
+# 2. Add URLs from .set files
+if ls "${CONFIG_DIR}"/*.set >/dev/null 2>&1; then
+    for set_file in "${CONFIG_DIR}"/*.set; do
+        echo "Scanning preset file $set_file for WebRequest URLs..."
+        while read -r url; do
+            if [ -n "$url" ]; then
+                UNIQUE_URLS["$url"]=1
+            fi
+        done < <(extract_urls_from_file "$set_file")
+    done
+fi
+
+# Join with semicolon
+FINAL_URLS=""
+for url in "${!UNIQUE_URLS[@]}"; do
+    if [ -z "$FINAL_URLS" ]; then
+        FINAL_URLS="$url"
+    else
+        FINAL_URLS="$FINAL_URLS;$url"
+    fi
+done
+
+echo "Whitelisted WebRequest URLs: $FINAL_URLS"
+
+# Configure common.ini (UTF-16LE)
+COMMON_INI_DIR="${MT5_INSTALL_DIR}/Config"
+mkdir -p "$COMMON_INI_DIR"
+COMMON_INI="${COMMON_INI_DIR}/common.ini"
+
+if [ ! -f "$COMMON_INI" ]; then
+    echo "Creating new default common.ini..."
+    cat << 'EOF' > "$COMMON_INI.utf8"
+[Common]
+[Experts]
+AllowDllImport=1
+Enabled=1
+WebRequest=1
+WebRequestUrl=
+EOF
+else
+    echo "Converting existing common.ini to UTF-8 for editing..."
+    iconv -f UTF-16LE -t UTF-8 "$COMMON_INI" > "$COMMON_INI.utf8" 2>/dev/null || cp "$COMMON_INI" "$COMMON_INI.utf8"
+fi
+
+echo "Updating common.ini with WebRequest whitelists..."
+awk -v urls="$FINAL_URLS" '
+BEGIN {
+    in_experts = 0
+    found_experts = 0
+    has_webrequest = 0
+    has_webrequesturl = 0
+    has_enabled = 0
+    has_dll = 0
+}
+/^\[Experts\]/ {
+    in_experts = 1
+    found_experts = 1
+    print
+    next
+}
+/^\[/ && !/^\[Experts\]/ {
+    if (in_experts) {
+        if (!has_webrequest) print "WebRequest=1"
+        if (!has_webrequesturl) print "WebRequestUrl=" urls
+        if (!has_enabled) print "Enabled=1"
+        if (!has_dll) print "AllowDllImport=1"
+        in_experts = 0
+    }
+    print
+    next
+}
+{
+    if (in_experts) {
+        clean_key = tolower($1)
+        gsub(/[ \t\r\n]/, "", clean_key)
+        if (clean_key == "webrequest") {
+            print "WebRequest=1"
+            has_webrequest = 1
+            next
+        }
+        if (clean_key == "webrequesturl") {
+            print "WebRequestUrl=" urls
+            has_webrequesturl = 1
+            next
+        }
+        if (clean_key == "enabled") {
+            print "Enabled=1"
+            has_enabled = 1
+            next
+        }
+        if (clean_key == "allowdllimport") {
+            print "AllowDllImport=1"
+            has_dll = 1
+            next
+        }
+    }
+    print
+}
+END {
+    if (in_experts) {
+        if (!has_webrequest) print "WebRequest=1"
+        if (!has_webrequesturl) print "WebRequestUrl=" urls
+        if (!has_enabled) print "Enabled=1"
+        if (!has_dll) print "AllowDllImport=1"
+    } else if (!found_experts) {
+        print ""
+        print "[Experts]"
+        print "WebRequest=1"
+        print "WebRequestUrl=" urls
+        print "Enabled=1"
+        print "AllowDllImport=1"
+    }
+}
+' FS='=' "$COMMON_INI.utf8" > "$COMMON_INI.utf8.tmp"
+
+# Convert back to UTF-16LE
+iconv -f UTF-8 -t UTF-16LE "$COMMON_INI.utf8.tmp" > "$COMMON_INI"
+rm -f "$COMMON_INI.utf8" "$COMMON_INI.utf8.tmp"
+echo "common.ini updated successfully."
+
 # 6. Handle exit signals for graceful termination
 cleanup() {
     echo "Stopping MetaTrader 5..."
