@@ -176,60 +176,30 @@ else
     mv "$STARTUP_INI.tmp" "$STARTUP_INI"
 fi
 
-# Function to extract base URLs from a file (handles UTF-8 and UTF-16LE)
-extract_urls_from_file() {
-    local file="$1"
-    if [ ! -f "$file" ]; then
-        return
-    fi
-    # Detect encoding: if it has null bytes, it is likely UTF-16LE
-    local orig_size=$(wc -c < "$file")
-    local stripped_size=$(tr -d '\0' < "$file" | wc -c)
-    if [ "$orig_size" -ne "$stripped_size" ]; then
-        iconv -f UTF-16LE -t UTF-8 "$file" > /tmp/set_file_utf8.tmp 2>/dev/null || cp "$file" /tmp/set_file_utf8.tmp
-    else
-        cp "$file" /tmp/set_file_utf8.tmp
-    fi
-    grep -o -E "https?://[^/\"'\\ \t\r\n]+" /tmp/set_file_utf8.tmp || true
-    rm -f /tmp/set_file_utf8.tmp
-}
-
-# Collect all unique URLs
+# Collect all unique URLs from the environment variable (provided in user config)
 declare -A UNIQUE_URLS
+FINAL_URLS=""
 
-# 1. Add URLs from environment variable
 if [ -n "$WEBREQUEST_URLS" ]; then
     IFS=';,' read -r -a env_urls <<< "$WEBREQUEST_URLS"
     for url in "${env_urls[@]}"; do
         url=$(echo "$url" | xargs)
         if [ -n "$url" ]; then
+            # Extract base domain (protocol + host)
             base_url=$(echo "$url" | grep -o -E "https?://[^/\"'\\ \t\r\n]+" || echo "$url")
             UNIQUE_URLS["$base_url"]=1
         fi
     done
-fi
-
-# 2. Add URLs from .set files
-if ls "${CONFIG_DIR}"/*.set >/dev/null 2>&1; then
-    for set_file in "${CONFIG_DIR}"/*.set; do
-        echo "Scanning preset file $set_file for WebRequest URLs..."
-        while read -r url; do
-            if [ -n "$url" ]; then
-                UNIQUE_URLS["$url"]=1
-            fi
-        done < <(extract_urls_from_file "$set_file")
+    
+    # Join keys with semicolon
+    for url in "${!UNIQUE_URLS[@]}"; do
+        if [ -z "$FINAL_URLS" ]; then
+            FINAL_URLS="$url"
+        else
+            FINAL_URLS="$FINAL_URLS;$url"
+        fi
     done
 fi
-
-# Join with semicolon
-FINAL_URLS=""
-for url in "${!UNIQUE_URLS[@]}"; do
-    if [ -z "$FINAL_URLS" ]; then
-        FINAL_URLS="$url"
-    else
-        FINAL_URLS="$FINAL_URLS;$url"
-    fi
-done
 
 echo "Whitelisted WebRequest URLs: $FINAL_URLS"
 
