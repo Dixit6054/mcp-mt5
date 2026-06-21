@@ -803,39 +803,7 @@ def tester_log_resource() -> str:
 
 
 @mcp.tool()
-def deploy_remote_instance(
-    host: str,
-    user: str,
-    key_file: str,
-    instance_name: str,
-    account_login: int,
-    account_password: str,
-    account_server: str,
-    symbol: str = "EURUSD",
-    ea_local_path: Optional[str] = None,
-    preset_local_path: Optional[str] = None,
-) -> dict:
-    """Deploy a new MT5 instance on a remote Linux VPS via SSH.
-    
-    Creates a new isolated wine prefix, configures startup.ini for login,
-    copies the EA/preset to the VPS, and starts MT5 as a background systemd service.
-    """
-    return _remote_deploy.deploy_remote_instance(
-        host=host,
-        user=user,
-        key_file=key_file,
-        instance_name=instance_name,
-        account_login=account_login,
-        account_password=account_password,
-        account_server=account_server,
-        symbol=symbol,
-        ea_local_path=ea_local_path,
-        preset_local_path=preset_local_path,
-    )
-
-
-@mcp.tool()
-def deploy_coolify_instance(
+def deploy_to_production(
     host: str,
     user: str,
     key_file: str,
@@ -855,7 +823,7 @@ def deploy_coolify_instance(
     Creates persistent boot/config directories, uploads startup.ini and EAs/presets,
     adds the new service instance to the Coolify Docker Compose stack, and triggers a redeploy.
     """
-    return _remote_deploy.deploy_coolify_instance(
+    return _remote_deploy.deploy_to_production(
         host=host,
         user=user,
         key_file=key_file,
