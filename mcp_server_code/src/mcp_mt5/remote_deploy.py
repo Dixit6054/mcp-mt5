@@ -23,7 +23,31 @@ def deploy_to_production(
     coolify_token: str = "XuYhKAKiiErqwsWgdmY1PcLiMndU6Ez8WvzXhSZQ",
     coolify_service_uuid: str = "nipi1hhqa5cb2qdyoptrik5p",
 ) -> dict:
-    """Deploy a new MT5 instance on a remote Linux VPS via Coolify orchestration."""
+    """Deploy a new MT5 instance on a remote Linux VPS via Coolify orchestration.
+
+    PREREQUISITES:
+    1. A target Linux VPS (ARM64) with Docker installed.
+    2. Coolify running on the VPS (typically on port 8000).
+    3. An existing MetaTrader 5 service created in Coolify (providing the coolify_service_uuid).
+    4. Coolify API Token created in Coolify settings.
+    5. SSH access configured on the VPS (user + private key) to upload configuration files.
+
+    PARAMETERS:
+    - host: The IP address or hostname of the remote Linux VPS.
+    - user: The SSH username for connection (e.g. 'ubuntu', 'root').
+    - key_file: Path to the local SSH private key file.
+    - instance_name: Unique name for this terminal instance (e.g., 'primary', 'secondary').
+    - account_login: MetaTrader 5 trading account login number.
+    - account_password: MetaTrader 5 trading account password.
+    - account_server: Broker server name (e.g., 'MetaQuotes-Demo').
+    - symbol: Chart symbol to open on startup (e.g., 'EURUSD', 'XAUUSD'). Defaults to 'EURUSD'.
+    - ea_local_path: Optional path to local compiled EA binary (.ex5) to upload.
+    - preset_local_path: Optional path to local EA settings file (.set) to upload.
+    - vnc_port: Optional specific port mapping for VNC. If omitted, the tool auto-detects and increments (e.g., 5901, 5902).
+    - webrequest_urls: Optional semicolon-separated list of URLs to whitelist for EA WebRequests (e.g. 'https://api.mybroker.com;https://webhook.site').
+    - coolify_token: Coolify API Token. Defaults to the preset production token.
+    - coolify_service_uuid: UUID of the Coolify service stack to append the instance to.
+    """
     
     # 1. Base SSH/SCP commands
     key_opt = ["-i", key_file] if key_file else []
